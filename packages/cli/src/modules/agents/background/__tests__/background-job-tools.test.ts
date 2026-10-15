@@ -466,7 +466,7 @@ describe('resume_background_jobs', () => {
 			'execution-1',
 			{ planId, taskIds },
 		);
-		expect(jobService.finishPlanResume).toHaveBeenCalledWith('agent-1', 'thread-1', selection);
+		expect(jobService.finishPlanResume).toHaveBeenCalledWith('agent-1', 'thread-1', selection, []);
 	});
 
 	it('requires a user turn, rejects early continuation, and reports each admitted resume', async () => {

@@ -162,7 +162,13 @@ export class AgentPlanWorkRepository extends BaseRepository<AgentPlan> {
 		await this.cancellations.saveStop(stop, ctx);
 	}
 
-	async releaseStoppedTasks(threadId: string, planId: string, stopId: string, ids: string[]) {
+	async releaseStoppedTasks(
+		threadId: string,
+		planId: string,
+		stopId: string,
+		ids: string[],
+		resumedJobIds: string[] = [],
+	) {
 		return await this.runInTransaction({}, async (_manager, ctx) => {
 			await this.cancellations.lockScope(threadId, ctx);
 			const stop = await this.stopForPlan(threadId, planId, ctx);
@@ -196,7 +202,7 @@ export class AgentPlanWorkRepository extends BaseRepository<AgentPlan> {
 						(job) =>
 							job.planTaskId === id &&
 							!job.pauseRequestId &&
-							['running', 'suspended'].includes(job.status),
+							(resumedJobIds.includes(job.id) || ['running', 'suspended'].includes(job.status)),
 					),
 			);
 			stop.restartTaskIds = [...new Set([...(stop.restartTaskIds ?? []), ...restartIds])];

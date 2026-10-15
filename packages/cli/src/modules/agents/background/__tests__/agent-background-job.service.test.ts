@@ -101,6 +101,7 @@ function setup(options: { backgroundTasksEnabled?: boolean } = {}) {
 	executionRepository.findLatestStatusesByThreadIds.mockResolvedValue(new Map());
 
 	const cancellation = mock<AgentTaskCancellationRepository>();
+	const planWork = mock<AgentPlanWorkRepository>();
 	const service = new AgentBackgroundJobService(
 		cancellation,
 		jobRepository,
@@ -112,9 +113,10 @@ function setup(options: { backgroundTasksEnabled?: boolean } = {}) {
 		updateBroadcaster,
 		checkpointStorage,
 		messageRepository,
-		mock<AgentPlanWorkRepository>(),
+		planWork,
 	);
 	return {
+		planWork,
 		service,
 		cancellation,
 		checkpointStorage,
@@ -1797,4 +1799,38 @@ describe('background task update failures', () => {
 			);
 		},
 	);
+});
+
+it('uses the saved stopped plan when Continue has no explicit plan ID', async () => {
+	const { service, planWork, cancellation, executionRepository, messageRepository } = setup();
+	cancellation.latest.mockResolvedValue({
+		threadId: 'thread-1',
+		planId: 'saved-plan',
+		requestedAt: new Date().toISOString(),
+		generation: { jobIds: [], threadIds: [], executionIds: [] },
+		failures: [],
+		pause: { id: 'stop' },
+	});
+	executionRepository.findExecution.mockResolvedValue(
+		mock<AgentExecution>({ threadId: 'thread-1', status: 'running' }),
+	);
+	messageRepository.findExecutionInputs.mockResolvedValue(
+		new Map([
+			[
+				'execution-1',
+				[
+					mock<AgentMessageEntity>({
+						role: 'user',
+						origin: null,
+						threadId: 'thread-1',
+						resourceId: 'draft-chat:user-1',
+						createdAt: new Date(),
+					}),
+				],
+			],
+		]),
+	);
+	planWork.selectStoppedTasks.mockResolvedValue({ status: 'stopping' });
+	await service.preparePausedResume('agent-1', 'thread-1', 'draft-chat:user-1', 'execution-1');
+	expect(planWork.selectStoppedTasks).toHaveBeenCalledWith('thread-1', 'saved-plan', undefined);
 });

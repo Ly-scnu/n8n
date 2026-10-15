@@ -216,7 +216,7 @@ export function createResumeBackgroundJobsTool(
 ): BuiltTool {
 	return new Tool('resume_background_jobs')
 		.description(
-			'Resume the selected stopped plan tasks. Pass planId and optional taskIds. Omit taskIds for the whole plan. Without planId, use the latest legacy stop group.',
+			'Resume the selected stopped plan tasks. Pass planId and optional taskIds. Omit taskIds for the whole plan. Without planId, use the saved stopped plan, or the latest stop group if there is no plan.',
 		)
 		.systemInstruction(
 			'Call resume_background_jobs first when the latest user message explicitly asks to continue stopped tasks. For a plan, pass its planId. For a selective request, pass only the requested taskIds. A group selects its unfinished children. Do not resume unrelated tasks or prerequisites. Read workState from the plan: a new user message does not resume stopped rows. Without a plan, Continue applies to the latest stop group. Do not call this tool for an unrelated message or an automatic notification. Never replace paused sub-agents with new jobs. If stopping is still in progress, ask the user to wait for the combined report and ask again. Do not poll or remember an early request for automatic continuation. The tool returns cancelled workflow references separately. It does not restart those workflows. Check conversation history and current jobs before repeating a workflow call, including repeated Continue requests. Call the normal workflow tool with inputs from the conversation only when a new execution is still needed. A new execution uses current configuration and starts from the beginning. Earlier actions can repeat and webhook URLs change. Continuing does not approve pending tools or bypass permissions.',
@@ -278,6 +278,7 @@ export function createResumeBackgroundJobsTool(
 					note: 'Wait for the combined status report, then ask to continue again.',
 				};
 			}
+			let resumedJobIds: string[] = [];
 			try {
 				const results = await Promise.allSettled(
 					candidates.jobs.map(
@@ -292,6 +293,9 @@ export function createResumeBackgroundJobsTool(
 								candidates.timeoutAt,
 							),
 					),
+				);
+				resumedJobIds = results.flatMap((result, index) =>
+					result.status === 'fulfilled' ? [candidates.jobs[index].id] : [],
 				);
 				return {
 					status:
@@ -317,6 +321,7 @@ export function createResumeBackgroundJobsTool(
 						options.parentAgentId,
 						persistence.threadId,
 						candidates.selection,
+						resumedJobIds,
 					);
 			}
 		})

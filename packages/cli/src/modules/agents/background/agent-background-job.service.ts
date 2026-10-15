@@ -391,11 +391,12 @@ export class AgentBackgroundJobService {
 			execution.startedAt ?? execution.createdAt,
 		);
 		const planStop = await this.cancellations.latest(parentThreadId);
-		if (selection) {
+		const planSelection = selection ?? (planStop?.planId ? { planId: planStop.planId } : undefined);
+		if (planSelection) {
 			const selected = await this.planWork.selectStoppedTasks(
 				parentThreadId,
-				selection.planId,
-				selection.taskIds,
+				planSelection.planId,
+				planSelection.taskIds,
 			);
 			if (selected.status !== 'selected') return { status: selected.status, jobs: [] };
 			if (
@@ -500,12 +501,14 @@ export class AgentBackgroundJobService {
 		parentAgentId: string,
 		threadId: string,
 		selection: { planId: string; stopId: string; taskIds: string[] },
+		resumedJobIds: string[] = [],
 	) {
 		await this.planWork.releaseStoppedTasks(
 			threadId,
 			selection.planId,
 			selection.stopId,
 			selection.taskIds,
+			resumedJobIds,
 		);
 		this.updateBroadcaster.notifyBackgroundJobsUpdated(parentAgentId, threadId);
 	}

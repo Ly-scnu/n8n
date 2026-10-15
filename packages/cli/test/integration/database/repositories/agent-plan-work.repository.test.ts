@@ -257,6 +257,22 @@ describe('Plan task ownership and continuation', () => {
 		expect(repeated.status === 'selected' && repeated.jobs).toEqual([]);
 	});
 
+	it('releases a resumed task even if it finishes before the tool returns', async () => {
+		const saved = await stop();
+		const workflow = await job(tasks[0].id, saved.pause.id);
+		await db
+			.getRepository(AgentBackgroundJob)
+			.update(workflow.id, { kind: 'workflow', status: 'cancelled' });
+		const child = await job(tasks[0].id, saved.pause.id);
+		const timeout = new Date(Date.now() + 60_000);
+		await jobs.reservePlanJobs(thread.id, saved.pause.id, [child.id], timeout, 5);
+		await jobs.resumeIfPaused(child.id, saved.pause.id, 'running', timeout, timeout);
+		await jobs.settleIfActive(child.id, { status: 'completed', result: 'Finished' });
+		await work.releaseStoppedTasks(thread.id, planId, saved.pause.id, [tasks[0].id], [child.id]);
+		expect((await stops.latest(thread.id))?.stoppedTaskIds).not.toContain(tasks[0].id);
+		expect((await stops.latest(thread.id))?.restartTaskIds).not.toContain(tasks[0].id);
+	});
+
 	it('checks capacity for the selection and rejects a reservation after a new Stop', async () => {
 		const savedStop = await stop();
 		const first = await job(tasks[0].id, savedStop.pause.id);

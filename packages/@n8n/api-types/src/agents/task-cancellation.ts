@@ -1,3 +1,17 @@
+export interface AgentPlanTaskRef {
+	planId: string;
+	planTaskId: string;
+}
+
+/** Runtime state does not change the saved task statuses. */
+export interface AgentPlanWorkState {
+	stoppedTaskIds: string[];
+	stoppingTaskIds: string[];
+	fullyStopped: boolean;
+	stoppedAt: string | null;
+	taskStateAvailable: boolean;
+}
+
 export interface AgentPlanItemDto {
 	id: string;
 	title: string;
@@ -8,6 +22,7 @@ export interface AgentPlanItemDto {
 }
 
 export interface AgentPlanSnapshotDto {
+	workState?: AgentPlanWorkState;
 	planId: string;
 	revision: number;
 	closed: boolean;

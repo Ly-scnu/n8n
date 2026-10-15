@@ -1,3 +1,4 @@
+import { PLAN_TASK_METADATA_KEY } from '../plans/agent-plan-task-context';
 import {
 	assertSubAgentTaskPath,
 	deriveSubAgentTelemetry,
@@ -21,6 +22,7 @@ import {
 	type SubAgentTaskPath,
 } from '@n8n/agents';
 import type {
+	AgentPlanTaskRef,
 	ResolvedSubAgentSource,
 	RunnableAgentJsonConfig,
 	SubAgentSource,
@@ -115,6 +117,7 @@ export interface SubAgentRunContext {
 	selfDelegationDifficulty?: SubAgentTaskDifficulty;
 	/** Persist reconstruction data before a background child can suspend. */
 	backgroundJobId?: string;
+	planTask?: AgentPlanTaskRef;
 	parentMessageContext?: IntegrationMessageContext | null;
 	onResumeClaimed?: () => Promise<void>;
 	beforeResume?: () => Promise<void>;
@@ -578,6 +581,8 @@ function createHostMetadata(
 	let metadata = principalHash
 		? encodeAgentSandboxHostMetadata({ projectId: context.projectId, principalHash })
 		: undefined;
+	if (context.planTask)
+		metadata = { ...metadata, [PLAN_TASK_METADATA_KEY]: { ...context.planTask } };
 	if (context.backgroundJobId) {
 		metadata = {
 			...metadata,

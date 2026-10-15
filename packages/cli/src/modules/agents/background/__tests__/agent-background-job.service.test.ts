@@ -1,3 +1,4 @@
+import { AgentPlanWorkRepository } from '@/modules/agents/repositories/agent-plan-work.repository';
 import type { Logger } from '@n8n/backend-common';
 import type { AgentsConfig } from '@n8n/config';
 import { Container } from '@n8n/di';
@@ -111,6 +112,7 @@ function setup(options: { backgroundTasksEnabled?: boolean } = {}) {
 		updateBroadcaster,
 		checkpointStorage,
 		messageRepository,
+		mock<AgentPlanWorkRepository>(),
 	);
 	return {
 		service,

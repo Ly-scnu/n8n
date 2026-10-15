@@ -1,3 +1,4 @@
+import type { AgentPlan } from './agent-plan.entity';
 import type { AgentExecution } from './agent-execution.entity';
 import type { AgentBackgroundJobDto } from '@n8n/api-types';
 import { DateTimeColumn, WithTimestampsAndStringId } from '@n8n/db';
@@ -16,6 +17,7 @@ export type AgentBackgroundJobStatus = AgentBackgroundJobDto['status'];
 @Entity({ name: 'agent_background_job' })
 @Index(['parentThreadId', 'status'])
 @Index(['parentAgentId'])
+@Index(['planId', 'planTaskId'])
 @Index(['settledAt'])
 @Index(['childExecutionId'], { unique: true, where: '"childExecutionId" IS NOT NULL' })
 @Index(['timeoutAt'], { where: "\"status\" IN ('running', 'suspended')" })
@@ -32,6 +34,16 @@ export class AgentBackgroundJob extends WithTimestampsAndStringId {
 	@ManyToOne('AgentExecution', { nullable: true, onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'sourceExecutionId' })
 	sourceExecution: Relation<AgentExecution> | null;
+
+	@Column({ type: 'uuid', nullable: true, comment: 'Plan that owns this work' })
+	planId: string | null;
+
+	@Column({ type: 'uuid', nullable: true, comment: 'Task ID in the saved plan document' })
+	planTaskId: string | null;
+
+	@ManyToOne('AgentPlan', { nullable: true, onDelete: 'SET NULL' })
+	@JoinColumn({ name: 'planId' })
+	plan: Relation<AgentPlan> | null;
 
 	@Column({ type: 'varchar', length: 16 })
 	kind: AgentBackgroundJobKind;

@@ -1,3 +1,4 @@
+import { AgentPlanWorkRepository } from '../repositories/agent-plan-work.repository';
 import type { AgentBackgroundJobDto } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { AgentsConfig } from '@n8n/config';
@@ -59,6 +60,8 @@ export type BackgroundJobView = Pick<
 	| 'notifiedAt'
 	| 'childExecutionId'
 	| 'pauseRequestId'
+	| 'planId'
+	| 'planTaskId'
 >;
 
 /** Cap on the result text persisted on a workflow job row. */
@@ -159,6 +162,7 @@ export class AgentBackgroundJobService {
 		private readonly updateBroadcaster: AgentExecutionUpdateBroadcaster,
 		private readonly checkpointStorage: N8NCheckpointStorage,
 		private readonly messageRepository: AgentMessageRepository,
+		private readonly planWork: AgentPlanWorkRepository,
 	) {
 		this.logger = this.logger.scoped('agents');
 	}
@@ -361,6 +365,7 @@ export class AgentBackgroundJobService {
 		parentThreadId: string,
 		parentResourceId: string,
 		executionId: string,
+		selection?: { planId: string; taskIds?: string[] },
 	) {
 		const execution = await this.executionRepository.findExecution(executionId);
 		if (execution?.threadId !== parentThreadId || execution.status !== 'running') {
@@ -386,6 +391,59 @@ export class AgentBackgroundJobService {
 			execution.startedAt ?? execution.createdAt,
 		);
 		const planStop = await this.cancellations.latest(parentThreadId);
+		if (selection) {
+			const selected = await this.planWork.selectStoppedTasks(
+				parentThreadId,
+				selection.planId,
+				selection.taskIds,
+			);
+			if (selected.status !== 'selected') return { status: selected.status, jobs: [] };
+			if (
+				selected.jobs.some(
+					(job) => job.status === 'running' || job.status === 'suspended' || !job.notifiedAt,
+				)
+			)
+				return { status: 'stopping' as const, jobs: [] };
+			const paused = selected.jobs.filter(
+				(job) => job.kind === 'subagent' && job.status === 'paused',
+			);
+			const timeoutAt = new Date(Date.now() + SUB_AGENT_BACKGROUND_TIMEOUT_MS);
+			const admission = await this.jobRepository.reservePlanJobs(
+				parentThreadId,
+				selected.stopId,
+				paused.map((job) => job.id),
+				timeoutAt,
+				MAX_RUNNING_JOBS_PER_THREAD,
+			);
+			if (admission !== 'reserved')
+				return {
+					status:
+						admission === 'limit-reached' ? ('limit-reached' as const) : ('stopping' as const),
+					jobs: [],
+				};
+			return {
+				status: 'ready' as const,
+				jobs: paused,
+				timeoutAt,
+				selection: { planId: selected.planId, stopId: selected.stopId, taskIds: selected.taskIds },
+				blocked: selected.blocked,
+				failed: selected.jobs
+					.filter((job) => job.status === 'failed')
+					.map((job) => ({ jobId: job.id, planTaskId: job.planTaskId, error: job.error })),
+				workflowsToRestart: selected.jobs
+					.filter((job) => job.kind === 'workflow' && job.status === 'cancelled')
+					.map((job) => ({
+						jobId: job.id,
+						title: job.title,
+						workflowId: job.workflowId,
+						previousExecutionId: job.childExecutionId,
+						planTask:
+							job.planId && job.planTaskId
+								? { planId: job.planId, planTaskId: job.planTaskId }
+								: undefined,
+					})),
+			};
+		}
 		const newPlanRequest = Boolean(
 			planStop?.pause.reportedAt && !planStop.generation.executionIds.includes(executionId),
 		);
@@ -436,6 +494,20 @@ export class AgentBackgroundJobService {
 		if (admission === 'limit-reached') return { status: 'limit-reached' as const, jobs: [] };
 		if (admission !== 'reserved') return { status: 'stopping' as const, jobs: [] };
 		return { status: 'ready' as const, jobs: paused, timeoutAt, workflowsToRestart };
+	}
+
+	async finishPlanResume(
+		parentAgentId: string,
+		threadId: string,
+		selection: { planId: string; stopId: string; taskIds: string[] },
+	) {
+		await this.planWork.releaseStoppedTasks(
+			threadId,
+			selection.planId,
+			selection.stopId,
+			selection.taskIds,
+		);
+		this.updateBroadcaster.notifyBackgroundJobsUpdated(parentAgentId, threadId);
 	}
 
 	private async releaseStaleResumeReservations(
@@ -669,6 +741,8 @@ export class AgentBackgroundJobService {
 			notifiedAt: job.notifiedAt,
 			childExecutionId: job.childExecutionId,
 			pauseRequestId: job.pauseRequestId,
+			planId: job.planId,
+			planTaskId: job.planTaskId,
 		};
 	}
 

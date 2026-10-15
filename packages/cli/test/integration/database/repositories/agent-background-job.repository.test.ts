@@ -1,3 +1,4 @@
+import { AgentPlanWorkRepository } from '@/modules/agents/repositories/agent-plan-work.repository';
 import type { SerializableAgentState } from '@n8n/agents';
 import { LockService, type Logger } from '@n8n/backend-common';
 import { createTeamProject, testDb, testModules } from '@n8n/backend-test-utils';
@@ -269,6 +270,7 @@ describe('AgentBackgroundJobRepository', () => {
 			mock<AgentExecutionUpdateBroadcaster>(),
 			Container.get(N8NCheckpointStorage),
 			mock<AgentMessageRepository>(),
+			mock<AgentPlanWorkRepository>(),
 		);
 		if (recover) {
 			await repository.settleIfActive(finishingId, { status: 'completed', result: 'Done' });
@@ -409,6 +411,8 @@ describe('AgentBackgroundJobRepository', () => {
 		const jobs = await repository.findGroupCandidates(agentId, 'thread-1');
 		expect(jobs).toHaveLength(1);
 		expect({ ...jobs[0] }).toEqual({
+			planId: null,
+			planTaskId: null,
 			id,
 			kind: 'subagent',
 			title: 'Research',
@@ -827,6 +831,7 @@ describe('AgentBackgroundJobRepository', () => {
 				mock<AgentExecutionUpdateBroadcaster>(),
 				checkpointStorage,
 				mock<AgentMessageRepository>(),
+				mock<AgentPlanWorkRepository>(),
 			);
 			const wakeService = new AgentWakeService(
 				mock<AgentTaskCancellationRepository>(),

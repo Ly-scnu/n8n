@@ -1,3 +1,5 @@
+import { parseAgentPlan } from './plans/agent-plan.schema';
+import { unfinishedPlanIds } from './plans/agent-plan-work-state';
 import type { AgentTaskCancellationState, AgentTaskStopFailure } from '@n8n/api-types';
 import { LockNamespace, LockService } from '@n8n/backend-common';
 import { TransactionRunner } from '@n8n/db';
@@ -55,6 +57,14 @@ export class AgentTaskCancellationService {
 									{
 										threadId,
 										planId,
+										...(plan
+											? {
+													planRevision: plan.revision,
+													stoppedTaskIds: unfinishedPlanIds(
+														parseAgentPlan(plan.data, plan.formatVersion),
+													),
+												}
+											: {}),
 										requestedAt: new Date().toISOString(),
 										generation: await this.repository.captureGeneration(threadId, ctx),
 										failures: [],

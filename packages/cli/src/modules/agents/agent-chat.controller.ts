@@ -931,6 +931,9 @@ export class AgentChatController {
 				title: scrubSecretsInText(job.title),
 				kind: job.kind,
 				status: job.status,
+				...(job.planId && job.planTaskId
+					? { planTask: { planId: job.planId, planTaskId: job.planTaskId } }
+					: {}),
 				...(job.pauseRequestId ? { pauseRequested: true } : {}),
 				...(job.approval
 					? {

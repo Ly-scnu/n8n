@@ -1,3 +1,4 @@
+import { AgentPlanWorkRepository } from '@/modules/agents/repositories/agent-plan-work.repository';
 import { createTeamProject, testDb, testModules } from '@n8n/backend-test-utils';
 import { GlobalConfig } from '@n8n/config';
 import { TransactionRunner } from '@n8n/db';
@@ -121,6 +122,7 @@ describe('AgentPlanService', () => {
 				transactionRunner,
 				Container.get(AgentTaskCancellationRepository),
 			),
+			Container.get(AgentPlanWorkRepository),
 		);
 		expect(await fresh.findActivePlan(threadId, {})).toEqual(updated);
 		expect(updated.readiness.ready).toEqual([second.id]);
@@ -274,9 +276,9 @@ describe('AgentPlanService', () => {
 
 	it('supports plan tools across turns and reconstructed tool instances', async () => {
 		const call = async (name: string, input: unknown) => {
-			const tool = createAgentPlanTools(new AgentPlanService(repository)).find(
-				(entry) => entry.name === name,
-			);
+			const tool = createAgentPlanTools(
+				new AgentPlanService(repository, Container.get(AgentPlanWorkRepository)),
+			).find((entry) => entry.name === name);
 			if (!tool?.handler) throw new Error(`Missing tool: ${name}`);
 			return await tool.handler(input, { persistence: { threadId, resourceId: agentId } });
 		};

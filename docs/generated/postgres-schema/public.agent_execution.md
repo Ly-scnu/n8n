@@ -103,6 +103,8 @@ erDiagram
   varchar_255_ parentResourceId
   varchar_128_ parentThreadId
   uuid pauseRequestId
+  uuid planId FK
+  uuid planTaskId
   text result
   timestamp_3__with_time_zone settledAt
   varchar_36_ sourceExecutionId FK

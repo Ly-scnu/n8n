@@ -115,6 +115,8 @@ erDiagram
   varchar_255_ parentResourceId
   varchar_128_ parentThreadId
   varchar pauseRequestId
+  varchar planId FK
+  varchar planTaskId
   TEXT result
   datetime_3_ settledAt
   varchar_36_ sourceExecutionId FK

@@ -4,6 +4,11 @@ import type { AgentTaskStopFailure } from '@n8n/api-types';
 export interface AgentTaskStop {
 	planId: string | null;
 	requestedAt: string;
+	/** Unfinished leaf tasks and empty groups captured when Stop was requested. */
+	stoppedTaskIds?: string[];
+	/** Explicitly selected workflow tasks that still need a replacement job. */
+	restartTaskIds?: string[];
+	planRevision?: number;
 	generation: { executionIds: string[]; jobIds: string[]; threadIds: string[] };
 	failures: AgentTaskStopFailure[];
 	/** Reuse background checkpoints and deliver one report for this stop. */
@@ -12,6 +17,7 @@ export interface AgentTaskStop {
 		reportExecutionId?: string;
 		reportedAt?: string;
 		reportFailed?: boolean;
+		/** Chat admission only. This does not resume stopped tasks. */
 		resumedAt?: string;
 	};
 }

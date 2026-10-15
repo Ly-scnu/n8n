@@ -115,6 +115,7 @@ export function presentPlan(plan: AgentPlanSnapshot | null) {
 
 	return {
 		planId: plan.id,
+		...(plan.workState ? { workState: plan.workState } : {}),
 		revision: plan.revision,
 		closed: plan.closedAt !== null,
 		startedAt,
@@ -216,6 +217,9 @@ export function createAgentPlanTools(service: AgentPlanService): BuiltTool[] {
 					'Do not add final communication-only tasks, such as "Presented findings to user", to the plan. ' +
 					'Include such a task only when it requires a sub-agent or a tool call beyond plan maintenance. ' +
 					'If the current plan content and revision are not in context, call read_plan before updating the plan. ' +
+					'Use workState to distinguish stopped tasks from their saved statuses. A new message does not resume stopped tasks. ' +
+					'For an explicit continuation request, call resume_background_jobs with planId and only the requested taskIds. Omit taskIds only when the user requests the whole plan. ' +
+					'Pass planTask with planId and the permanent leaf task ID when you delegate background plan work. ' +
 					'For sub-agent work on a plan task, always use delegate_subagent with mode: "background", even for short or sequential tasks. ' +
 					'Do not use foreground delegation for plan work. ' +
 					'This rule overrides the default foreground-delegation guidance for plan work. ' +

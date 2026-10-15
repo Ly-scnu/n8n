@@ -30,7 +30,7 @@ export class AgentTaskCancellationRepository extends BaseRepository<AgentExecuti
 
 	async latest(threadId: string, ctx: OperationContext = {}): Promise<TaskStopScope | null> {
 		const thread = await this.managerFor(ctx).findOneBy(AgentExecutionThread, { id: threadId });
-		return thread?.taskStop ? { ...thread.taskStop, threadId } : null;
+		return this.readStop(thread);
 	}
 
 	async saveStop(stop: TaskStopScope, ctx: OperationContext) {
@@ -225,10 +225,11 @@ export class AgentTaskCancellationRepository extends BaseRepository<AgentExecuti
 	}
 
 	async pausedScope(threadId: string, ctx: OperationContext = {}) {
-		const thread = (await this.lineage(threadId, ctx)).find(
-			(item) => item.taskStop && !item.taskStop.pause.resumedAt,
+		return (
+			(await this.lineage(threadId, ctx))
+				.map((thread) => this.readStop(thread))
+				.find((stop) => stop && !stop.pause.resumedAt) ?? null
 		);
-		return thread?.taskStop ? { ...thread.taskStop, threadId: thread.id } : null;
 	}
 
 	async hasPausedAncestor(threadId: string, ctx: OperationContext) {
@@ -257,9 +258,10 @@ export class AgentTaskCancellationRepository extends BaseRepository<AgentExecuti
 
 	async pendingPauseReports() {
 		const threads = await this.find({ where: { taskStop: Not(IsNull()) } });
-		return threads
-			.filter((thread) => thread.taskStop && !thread.taskStop.pause.reportedAt)
-			.map((thread) => thread.id);
+		return threads.flatMap((thread) => {
+			const stop = this.readStop(thread);
+			return stop && !stop.pause.reportedAt ? [thread.id] : [];
+		});
 	}
 
 	async pauseReportPlan(stop: TaskStopScope) {
@@ -300,6 +302,21 @@ export class AgentTaskCancellationRepository extends BaseRepository<AgentExecuti
 					{ notifiedAt: new Date(stop.pause.reportedAt) },
 				);
 		});
+	}
+
+	private readStop(thread: AgentExecutionThread | null): TaskStopScope | null {
+		if (!thread?.taskStop) return null;
+		const stop = thread.taskStop;
+		return {
+			...stop,
+			threadId: thread.id,
+			// Legacy stops have no pending report and do not pause later turns.
+			pause: stop.pause ?? {
+				id: `legacy:${thread.id}:${stop.requestedAt}`,
+				reportedAt: stop.requestedAt,
+				resumedAt: stop.requestedAt,
+			},
+		};
 	}
 
 	private async lineage(threadId: string, ctx: OperationContext) {

@@ -85,6 +85,65 @@ describe('Task cancellation persistence', () => {
 		return await queue.enqueue(thread.id, input.id, { kind: 'preview' }, {});
 	}
 
+	it('excludes legacy stops from pending reports without skipping current reports', async () => {
+		const legacy = {
+			planId: null,
+			requestedAt: cutoffAt.toISOString(),
+			generation: { executionIds: [], jobIds: [], threadIds: [] },
+			failures: [],
+		};
+		await db.getRepository(AgentExecutionThread).update(thread.id, {
+			taskStop: legacy,
+		});
+		const current = await db.getRepository(AgentExecutionThread).save({
+			id: randomUUID(),
+			agentId,
+			agentName: 'Current stop',
+			projectId,
+		});
+		await repository.saveStop({ ...legacy, threadId: current.id, pause: { id: randomUUID() } }, {});
+
+		const pending = await repository.pendingPauseReports();
+		expect(pending).not.toContain(thread.id);
+		expect(pending).toContain(current.id);
+	});
+
+	it('reads a legacy stop without scheduling a report or blocking new user input', async () => {
+		const old = await db.getRepository(AgentExecution).save({
+			id: randomUUID(),
+			threadId: thread.id,
+			status: 'cancelled',
+		});
+		const legacy = {
+			planId: null,
+			requestedAt: cutoffAt.toISOString(),
+			generation: await repository.captureGeneration(thread.id, {}),
+			failures: [],
+		};
+		await db.getRepository(AgentExecutionThread).update(thread.id, { taskStop: legacy });
+		const stop = await repository.latest(thread.id);
+		expect(stop).toMatchObject(legacy);
+		expect(await repository.latest(thread.id)).toEqual(stop);
+		expect(await repository.blocksQueue(thread.id, {})).toBe(false);
+		expect(await repository.pausedScope(thread.id)).toBeNull();
+		expect(await repository.isCancelled(thread.id, old.id)).toBe(true);
+		await expect(repository.assertAdmission(thread.id, old.id, {})).rejects.toThrow();
+		const next = await db.getRepository(AgentExecution).save({
+			id: randomUUID(),
+			threadId: thread.id,
+			status: 'running',
+		});
+		await expect(repository.assertAdmission(thread.id, next.id, {})).resolves.toBeUndefined();
+		await repository.recordAdmission(thread.id, next.id, { userInitiated: true }, {});
+		await expect(
+			repository.assertWakeAdmission(thread.id, { jobIds: [], planStopId: stop!.pause.id }, {}),
+		).rejects.toThrow('no longer available');
+		await repository.finishPauseReport(thread.id, stop!.pause.id, true);
+		expect(
+			(await db.getRepository(AgentExecutionThread).findOneByOrFail({ id: thread.id })).taskStop,
+		).toEqual(legacy);
+	});
+
 	it('discards pending and steering messages while preserving later input', async () => {
 		const first = await enqueue('First');
 		await enqueue('Second');

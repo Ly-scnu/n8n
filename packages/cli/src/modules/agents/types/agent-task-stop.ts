@@ -21,3 +21,8 @@ export interface AgentTaskStop {
 		resumedAt?: string;
 	};
 }
+
+/** Earlier stop records have no pause coordination. */
+export type StoredAgentTaskStop = Omit<AgentTaskStop, 'pause'> & {
+	pause?: AgentTaskStop['pause'];
+};

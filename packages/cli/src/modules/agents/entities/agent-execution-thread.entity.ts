@@ -4,7 +4,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, type Relation } from '@n8
 
 import { AgentHistory } from './agent-history.entity';
 import { Agent } from './agent.entity';
-import type { AgentTaskStop } from '../types/agent-task-stop';
+import type { StoredAgentTaskStop } from '../types/agent-task-stop';
 
 /**
  * One conversation between a user and an agent. Aggregates per-session
@@ -22,7 +22,7 @@ import type { AgentTaskStop } from '../types/agent-task-stop';
 @Entity({ name: 'agent_execution_threads' })
 export class AgentExecutionThread extends WithTimestampsAndStringId {
 	@JsonColumn({ nullable: true, comment: 'Latest task stop boundary and unresolved stop errors' })
-	taskStop: AgentTaskStop | null;
+	taskStop: StoredAgentTaskStop | null;
 
 	@ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'ownerId', foreignKeyConstraintName: 'FK_agent_execution_threads_owner' })

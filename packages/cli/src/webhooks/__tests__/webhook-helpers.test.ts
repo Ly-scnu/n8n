@@ -8,6 +8,7 @@ import { Container } from '@n8n/di';
 import {
 	AuthenticationPipeline,
 	AuthenticationService,
+	ResourceAdmission,
 	TrustedSourceStore,
 	type TrustedSource,
 } from '@n8n/inbound-auth';
@@ -22,6 +23,7 @@ import {
 	isWebhookHtmlSandboxingDisabled,
 } from 'n8n-core';
 
+import { InboundResourceAdmission } from '@/modules/inbound-auth-core/resource-admission';
 import type { ExecutionResponseReceiver } from '@/modules/engine-v2/response-channel/execution-response-receiver';
 
 vi.mock('n8n-core', async () => ({
@@ -2180,6 +2182,11 @@ describe('executeWebhook additional data', () => {
 		Container.set(AuthenticationService, authenticationService);
 		Container.set(TrustedSourceStore, trustedSourceStore);
 		const logger = Container.get(Logger);
+		// The module init binds the contract; this harness loads no module.
+		Container.set(
+			ResourceAdmission,
+			new InboundResourceAdmission(pipeline, authenticationService, logger),
+		);
 
 		const authorize = vi.fn<ProtectedResource['authorize']>();
 		const resource: ProtectedResource = {
@@ -2263,38 +2270,22 @@ describe('executeWebhook additional data', () => {
 					acceptedSourceIds: ['idp-1'],
 					grant: GRANT,
 					credential: { kind: 'bearer', token: 'the-token' },
-					request: {
-						method: 'POST',
-						url: '/form/abc',
-						ip: '203.0.113.7',
-						headers: { authorization: 'Bearer the-token' },
-					},
+					request: { method: 'POST', url: '/form/abc', ip: '203.0.113.7', headers: {} },
 				}),
 			);
 			expect(authorize).toHaveBeenCalledWith(context.subject);
 			expect(req.ctx?.security).toBe(context);
 		});
 
-		it('writes one allowed line without token, external subject or email', async () => {
+		it('writes no line of its own when the pipeline accepted: the pipeline already logged it', async () => {
 			const { validateN8nOAuth2Token } = await resolveWithResource();
 			vi.mocked(logger.info).mockClear();
 			vi.mocked(logger.warn).mockClear();
 
 			await validateN8nOAuth2Token!('the-token', RESOURCE_URL);
 
-			expect(logger.info).toHaveBeenCalledTimes(1);
-			expect(logger.info).toHaveBeenCalledWith('Inbound authentication allowed', {
-				surface: 'trigger',
-				resource: RESOURCE_URL,
-				sourceId: 'idp-1',
-				authMethod: 'oauth-access-token',
-				userId: 'user-1',
-			});
+			expect(logger.info).not.toHaveBeenCalled();
 			expect(logger.warn).not.toHaveBeenCalled();
-			const logged = JSON.stringify(vi.mocked(logger.info).mock.calls);
-			expect(logged).not.toContain('the-token');
-			expect(logged).not.toContain('idp-alice');
-			expect(logged).not.toContain('alice@example.com');
 		});
 
 		it('answers a pipeline rejection with a challenge that names the metadata and the reason', async () => {
@@ -2359,6 +2350,10 @@ describe('executeWebhook additional data', () => {
 				userId: 'user-1',
 				reason: 'insufficient_scope',
 			});
+			const logged = JSON.stringify(vi.mocked(logger.warn).mock.calls);
+			expect(logged).not.toContain('the-token');
+			expect(logged).not.toContain('idp-alice');
+			expect(logged).not.toContain('alice@example.com');
 			expect(req.ctx).toBeUndefined();
 		});
 

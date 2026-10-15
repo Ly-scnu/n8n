@@ -1,14 +1,16 @@
-import type {
-	ApplyPackageDto,
-	ApplyPackageResultDto,
-	ApplySelectionDto,
-	ContinueApplyPackageDto,
-	ContinueApplySelectionDto,
-	PromotePackageDto,
-	PromotePackageResultDto,
-	PromoteRequest,
-	PromotionCheckoutPublicDto,
-	PromotionDirection,
+import {
+	parsePromotionRunDetails,
+	promotionRunTypeSchema,
+	type ApplyPackageDto,
+	type ApplyPackageResultDto,
+	type ApplySelectionDto,
+	type ContinueApplyPackageDto,
+	type ContinueApplySelectionDto,
+	type PromotePackageDto,
+	type PromotePackageResultDto,
+	type PromoteRequest,
+	type PromotionCheckoutPublicDto,
+	type PromotionDirection,
 } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { ProjectRepository, SharedWorkflowRepository, type User } from '@n8n/db';
@@ -60,6 +62,7 @@ import { MERGE_REQUEST_TITLE_MAX_LENGTH } from './git-hosts/gitlab-merge-request
 import { PromotionBindingPreflightService } from './promotion-binding-preflight.service';
 import { PromotionConfigResolver } from './promotion-config.resolver';
 import { PromotionProvidersService } from './promotion-providers.service';
+import { PromotionRunRepository } from './database/repositories/promotion-run.repository';
 import { PromotionReviewsService } from './promotion-reviews.service';
 import { PromotionWorkingDirectoryService } from './promotion-working-directory.service';
 import { PromotionsGitService } from './promotions-git.service';
@@ -119,6 +122,7 @@ export class PromotionsService {
 		private readonly bindingPreflight: PromotionBindingPreflightService,
 		private readonly inventoryReader: PackageDirectoryInventoryReader,
 		private readonly packageImportConfig: PackageImportConfig,
+		private readonly runRepository: PromotionRunRepository,
 		private readonly reviewsService: PromotionReviewsService,
 		private readonly logger: Logger,
 	) {
@@ -259,26 +263,38 @@ export class PromotionsService {
 	}
 
 	/**
-	 * A branched push on a Git host gets a merge request, which is the Promotion
-	 * Review. A direct push to the base branch has nothing to review. The push is
-	 * already done, so this runs outside the push's error handling and never throws.
+	 * Records the successful push, then opens a review when the push used a
+	 * promotion branch. A direct push has a run and no review. The push is
+	 * already done, so this never throws.
 	 */
 	private async openReview(
 		input: PromotionOperationInput,
 		actor: User,
 		push: { promotionBranchName: string | undefined; commitSha: string; title: string },
 	): Promise<Pick<PromotePackageResultDto, 'mergeRequest' | 'warnings'>> {
-		if (!push.promotionBranchName) return {};
+		const recorded = await this.recordPromoteRun(input, actor, {
+			branchName: push.promotionBranchName ?? checkoutBranchName(input.config),
+			commitSha: push.commitSha,
+		});
+		if (!push.promotionBranchName) {
+			return recorded.warnings.length > 0 ? { warnings: recorded.warnings } : {};
+		}
 		try {
-			const { mergeRequest, warnings } = await this.reviewsService.openMergeRequest(input, actor, {
-				branchName: push.promotionBranchName,
-				baseBranchName: checkoutBranchName(input.config),
-				commitSha: push.commitSha,
-				title: push.title.split('\n')[0].slice(0, MERGE_REQUEST_TITLE_MAX_LENGTH),
-			});
+			const { mergeRequest, warnings } = await this.reviewsService.openMergeRequest(
+				input,
+				actor,
+				{
+					branchName: push.promotionBranchName,
+					baseBranchName: checkoutBranchName(input.config),
+					commitSha: push.commitSha,
+					title: push.title.split('\n')[0].slice(0, MERGE_REQUEST_TITLE_MAX_LENGTH),
+				},
+				recorded.runId,
+			);
+			const allWarnings = [...recorded.warnings, ...warnings];
 			return {
 				...(mergeRequest && { mergeRequest }),
-				...(warnings.length > 0 && { warnings }),
+				...(allWarnings.length > 0 && { warnings: allWarnings }),
 			};
 		} catch (error) {
 			// The review service reports failures as warnings. This catch keeps the
@@ -286,8 +302,38 @@ export class PromotionsService {
 			this.logger.error('Opening the promotion review failed after the push', { error });
 			return {
 				warnings: [
+					...recorded.warnings,
 					`The branch ${push.promotionBranchName} was pushed, but no merge request was opened.`,
 				],
+			};
+		}
+	}
+
+	/** Writes the run after the push. A failure becomes a warning. The push stays. */
+	private async recordPromoteRun(
+		input: PromotionOperationInput,
+		actor: User,
+		git: { branchName: string; commitSha: string },
+	): Promise<{ runId?: string; warnings: string[] }> {
+		try {
+			const type = promotionRunTypeSchema.parse('git');
+			const run = await this.runRepository.insertRun({
+				configId: input.configId,
+				createdById: actor.id,
+				direction: input.config.direction,
+				type,
+				details: parsePromotionRunDetails(type, {
+					schemaVersion: 1,
+					branchName: git.branchName,
+					commitSha: git.commitSha,
+				}),
+				reviewId: null,
+			});
+			return { runId: run.id, warnings: [] };
+		} catch (error) {
+			this.logger.error('Could not record the promotion run', { error });
+			return {
+				warnings: ['The push succeeded, but n8n could not record the promotion run.'],
 			};
 		}
 	}

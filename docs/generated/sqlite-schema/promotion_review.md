@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "promotion_review" ("id" varchar(36) PRIMARY KEY NOT NULL, "runId" varchar(36) NOT NULL, "remoteReviewId" varchar(255) NOT NULL, "state" varchar(16) NOT NULL DEFAULT ('open'), "mergedAt" datetime(3), "closedAt" datetime(3), "approvedById" varchar, "approvedAt" datetime(3), "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), CONSTRAINT "CHK_promotion_review_state" CHECK ("state" IN ('open', 'merged', 'closed')), CONSTRAINT "FK_promotion_review_runId" FOREIGN KEY ("runId") REFERENCES "promotion_run" ("id") ON DELETE CASCADE, CONSTRAINT "FK_promotion_review_approvedById" FOREIGN KEY ("approvedById") REFERENCES "user" ("id") ON DELETE SET NULL)
+CREATE TABLE "promotion_review" ("id" varchar(36) PRIMARY KEY NOT NULL, "connectionId" varchar(36), "type" varchar(16) NOT NULL, "remoteReviewId" varchar(255), "state" varchar(32) NOT NULL DEFAULT ('open'), "mergedAt" datetime(3), "closedAt" datetime(3), "approvedById" varchar, "approvedAt" datetime(3), "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), CONSTRAINT "CHK_promotion_review_state" CHECK ("state" IN ('open', 'changes_requested', 'merged', 'closed')), CONSTRAINT "FK_promotion_review_connectionId" FOREIGN KEY ("connectionId") REFERENCES "promotion_connection" ("id") ON DELETE SET NULL, CONSTRAINT "FK_promotion_review_approvedById" FOREIGN KEY ("approvedById") REFERENCES "user" ("id") ON DELETE SET NULL)
 ```
 
 </details>
@@ -18,20 +18,21 @@ CREATE TABLE "promotion_review" ("id" varchar(36) PRIMARY KEY NOT NULL, "runId" 
 | approvedAt | datetime(3) |  | true |  |  |  |
 | approvedById | varchar |  | true |  | [user](user.md) |  |
 | closedAt | datetime(3) |  | true |  |  |  |
+| connectionId | varchar(36) |  | true |  | [promotion_connection](promotion_connection.md) |  |
 | createdAt | datetime(3) | STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW') | false |  |  |  |
-| id | varchar(36) |  | false |  |  |  |
+| id | varchar(36) |  | false | [promotion_run](promotion_run.md) |  |  |
 | mergedAt | datetime(3) |  | true |  |  |  |
-| remoteReviewId | varchar(255) |  | false |  |  |  |
-| runId | varchar(36) |  | false |  | [promotion_run](promotion_run.md) |  |
-| state | varchar(16) | 'open' | false |  |  |  |
+| remoteReviewId | varchar(255) |  | true |  |  |  |
+| state | varchar(32) | 'open' | false |  |  |  |
+| type | varchar(16) |  | false |  |  |  |
 
 ## Constraints
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
-| - | CHECK | CHECK ("state" IN ('open', 'merged', 'closed')) |
+| - | CHECK | CHECK ("state" IN ('open', 'changes_requested', 'merged', 'closed')) |
 | - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (approvedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
-| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (runId) REFERENCES promotion_run (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
+| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (connectionId) REFERENCES promotion_connection (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
 | id | PRIMARY KEY | PRIMARY KEY (id) |
 | sqlite_autoindex_promotion_review_1 | PRIMARY KEY | PRIMARY KEY (id) |
 
@@ -40,7 +41,8 @@ CREATE TABLE "promotion_review" ("id" varchar(36) PRIMARY KEY NOT NULL, "runId" 
 | Name | Definition |
 | ---- | ---------- |
 | IDX_82d6930410e9e6c7d04c515079 | CREATE INDEX "IDX_82d6930410e9e6c7d04c515079" ON "promotion_review" ("state", "createdAt")  |
-| IDX_8ddf41da9d492558353468b10b | CREATE INDEX "IDX_8ddf41da9d492558353468b10b" ON "promotion_review" ("runId")  |
+| IDX_93e4ec34f4091a0333af0076b6 | CREATE INDEX "IDX_93e4ec34f4091a0333af0076b6" ON "promotion_review" ("connectionId")  |
+| IDX_promotion_review_connectionId_remoteReviewId | CREATE UNIQUE INDEX "IDX_promotion_review_connectionId_remoteReviewId" ON "promotion_review" ("connectionId", "remoteReviewId") WHERE "remoteReviewId" IS NOT NULL |
 | sqlite_autoindex_promotion_review_1 | PRIMARY KEY (id) |
 
 ## Relations
@@ -49,18 +51,20 @@ CREATE TABLE "promotion_review" ("id" varchar(36) PRIMARY KEY NOT NULL, "runId" 
 erDiagram
 
 "promotion_review" }o--o| "user" : "FOREIGN KEY (approvedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
-"promotion_review" }o--|| "promotion_run" : "FOREIGN KEY (runId) REFERENCES promotion_run (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"promotion_review" }o--o| "promotion_connection" : "FOREIGN KEY (connectionId) REFERENCES promotion_connection (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"promotion_run" }o--o| "promotion_review" : "FOREIGN KEY (reviewId) REFERENCES promotion_review (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 
 "promotion_review" {
   datetime_3_ approvedAt
   varchar approvedById FK
   datetime_3_ closedAt
+  varchar_36_ connectionId FK
   datetime_3_ createdAt
   varchar_36_ id PK
   datetime_3_ mergedAt
   varchar_255_ remoteReviewId
-  varchar_36_ runId FK
-  varchar_16_ state
+  varchar_32_ state
+  varchar_16_ type
 }
 "user" {
   datetime_3_ createdAt
@@ -79,14 +83,24 @@ erDiagram
   TEXT settings
   datetime_3_ updatedAt
 }
+"promotion_connection" {
+  datetime_3_ createdAt
+  varchar_36_ id PK
+  varchar_128_ name
+  varchar_36_ providerId FK
+  varchar_16_ scope
+  TEXT target
+  datetime_3_ updatedAt
+}
 "promotion_run" {
-  varchar_255_ branchName
-  varchar_64_ commitSha
   varchar_36_ configId FK
   datetime_3_ createdAt
   varchar createdById FK
+  TEXT details
   varchar_16_ direction
   varchar_36_ id PK
+  varchar_36_ reviewId FK
+  varchar_16_ type
 }
 ```
 

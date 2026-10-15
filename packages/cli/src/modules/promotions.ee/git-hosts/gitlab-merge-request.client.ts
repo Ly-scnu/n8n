@@ -48,15 +48,14 @@ export type GitLabMergeRequest = z.infer<typeof mergeRequestSchema>;
 /** Identifies one merge request on one GitLab project. */
 export type MergeRequestRef = Readonly<{ projectId: number; iid: number }>;
 
-const REVIEW_ID_PATTERN = /^gitlab:(?<projectId>\d+)!(?<iid>\d+)$/;
+const REVIEW_ID_PATTERN = /^(?<projectId>\d+)!(?<iid>\d+)$/;
 
 /**
- * Encodes a merge request as the opaque `remoteReviewId` stored on a Promotion
- * Review: `gitlab:<projectId>!<iid>`. The numeric project id is stable across
- * repository renames. The prefix tells the GitLab client apart from later hosts.
+ * Encodes a merge request as the `remoteReviewId` stored on a Promotion Review:
+ * `<projectId>!<iid>`. The review `type` column names the host. The numeric
+ * project id is stable across repository renames.
  */
-export const toGitLabReviewId = ({ projectId, iid }: MergeRequestRef) =>
-	`gitlab:${projectId}!${iid}`;
+export const toGitLabReviewId = ({ projectId, iid }: MergeRequestRef) => `${projectId}!${iid}`;
 
 /** Inverse of {@link toGitLabReviewId}. Throws when the id belongs to another host. */
 export const parseGitLabReviewId = (remoteReviewId: string): MergeRequestRef => {

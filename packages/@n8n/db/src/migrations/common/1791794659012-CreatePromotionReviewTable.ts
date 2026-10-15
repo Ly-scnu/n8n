@@ -3,34 +3,109 @@ import type { MigrationContext, ReversibleMigration } from '../migration-types';
 const runTable = 'promotion_run';
 const reviewTable = 'promotion_review';
 const configTable = 'promotion_config';
+const connectionTable = 'promotion_connection';
 const userTable = 'user';
 
 // Inlined on purpose: a migration must not import live enums from other packages.
 const DIRECTIONS = ['promote', 'apply'];
-const REVIEW_STATES = ['open', 'merged', 'closed'];
+const REVIEW_STATES = ['open', 'changes_requested', 'merged', 'closed'];
 
 /**
- * A promotion run is one Promote or Apply. A promotion review is the host
- * review a Promote opened. The run holds what only n8n knows. The review holds
- * the host reference and the state. Title, URL and conflicts stay on the host.
+ * A promotion run is one successful Promote or Apply. A promotion review is the
+ * gate on that push. The run points at the review, so one review can collect
+ * several runs. A direct push has a run and no review.
  */
 export class CreatePromotionReviewTable1791794659012 implements ReversibleMigration {
-	async up({ schemaBuilder: { createTable, column }, tablePrefix }: MigrationContext) {
+	async up({
+		schemaBuilder: { createTable, column, createIndex },
+		tablePrefix,
+		escape,
+	}: MigrationContext) {
+		// The run references the review, so the review table comes first.
+		await createTable(reviewTable)
+			.withColumns(
+				column('id').varchar(36).primary,
+				column('connectionId')
+					.varchar(36)
+					.comment(
+						'The connection that remoteReviewId resolves through. NULL after the connection is deleted.',
+					),
+				column('type')
+					.varchar(16)
+					.notNull.comment(
+						'Where the review lives. "gitlab" now. The application checks the value. The database does not.',
+					),
+				column('remoteReviewId')
+					.varchar(255)
+					.comment(
+						'Host reference for type. GitLab stores "<projectId>!<iid>". NULL when the review lives in n8n.',
+					),
+				column('state')
+					.varchar(32)
+					.notNull.default("'open'")
+					.withEnumCheck(REVIEW_STATES)
+					.comment(
+						'PromotionReviewState enum: "open", "changes_requested", "merged", "closed". "merged" and "closed" are terminal.',
+					),
+				column('mergedAt').timestampTimezone().comment('Mirrored from the host.'),
+				column('closedAt').timestampTimezone().comment('Mirrored from the host.'),
+				column('approvedById').uuid.comment(
+					'The one n8n user who approved the review in n8n. NULL until then. n8n does not copy an approver from the host.',
+				),
+				column('approvedAt').timestampTimezone().comment('When the n8n user approved the review.'),
+			)
+			.withCreatedAt.withForeignKey('connectionId', {
+				tableName: connectionTable,
+				columnName: 'id',
+				onDelete: 'SET NULL',
+				name: `FK_${tablePrefix}promotion_review_connectionId`,
+			})
+			.withForeignKey('approvedById', {
+				tableName: userTable,
+				columnName: 'id',
+				onDelete: 'SET NULL',
+				name: `FK_${tablePrefix}promotion_review_approvedById`,
+			})
+			// The inbox lists by state and orders by creation time.
+			.withIndexOn(['state', 'createdAt'])
+			// Foreign key index, for the SET NULL when the connection is deleted.
+			.withIndexOn(['connectionId']);
+
+		// Two hosts can use the same project id and iid. NULL remote ids are not unique.
+		await createIndex(
+			reviewTable,
+			['connectionId', 'remoteReviewId'],
+			true,
+			undefined,
+			`${escape.columnName('remoteReviewId')} IS NOT NULL`,
+		);
+
 		await createTable(runTable)
 			.withColumns(
 				column('id').varchar(36).primary,
 				column('configId')
 					.varchar(36)
 					.comment('The config this run used. NULL after the config is deleted.'),
-				column('createdById').uuid.comment('The user who ran Promote or Apply.'),
 				column('direction')
 					.varchar(16)
 					.notNull.withEnumCheck(DIRECTIONS)
 					.comment(
 						'PromotionDirection enum: "promote" pushes to the remote, "apply" imports from it. Copied from the config when the run is written.',
 					),
-				column('branchName').varchar(255).notNull.comment('The branch this run pushed or applied.'),
-				column('commitSha').varchar(64).notNull.comment('The commit this run pushed or applied.'),
+				column('type')
+					.varchar(16)
+					.notNull.comment(
+						'How the package moved. "git" covers GitHub, GitLab and plain Git. The application checks the value. The database does not.',
+					),
+				column('createdById').uuid.comment('The user who ran Promote or Apply.'),
+				column('details').json.comment(
+					'Payload for type. A git run stores schemaVersion, branchName and commitSha. NULL when the type has no details.',
+				),
+				column('reviewId')
+					.varchar(36)
+					.comment(
+						'The review this run belongs to. NULL when the push has no review. Not unique: an amend adds another run.',
+					),
 			)
 			.withCreatedAt.withForeignKey('configId', {
 				tableName: configTable,
@@ -44,52 +119,19 @@ export class CreatePromotionReviewTable1791794659012 implements ReversibleMigrat
 				onDelete: 'SET NULL',
 				name: `FK_${tablePrefix}promotion_run_createdById`,
 			})
-			// Foreign key index, for the SET NULL when the config is deleted.
-			.withIndexOn(['configId']);
-
-		await createTable(reviewTable)
-			.withColumns(
-				column('id').varchar(36).primary,
-				column('runId').varchar(36).notNull.comment('The promotion run that opened this review.'),
-				column('remoteReviewId')
-					.varchar(255)
-					.notNull.comment(
-						'Opaque reference to the review on the host. The prefix names the host kind, the rest is parsed by that host client, e.g. "gitlab:<projectId>!<iid>".',
-					),
-				column('state')
-					.varchar(16)
-					.notNull.default("'open'")
-					.withEnumCheck(REVIEW_STATES)
-					.comment(
-						'PromotionReviewState enum: "open", "merged", "closed". Only "open" rows are refreshed from the host.',
-					),
-				column('mergedAt').timestampTimezone().comment('Mirrored from the host.'),
-				column('closedAt').timestampTimezone().comment('Mirrored from the host.'),
-				column('approvedById').uuid.comment(
-					'The n8n user who approved the review in n8n. NULL when approval happened on the host.',
-				),
-				column('approvedAt').timestampTimezone(),
-			)
-			.withCreatedAt.withForeignKey('runId', {
-				tableName: runTable,
-				columnName: 'id',
-				onDelete: 'CASCADE',
-				name: `FK_${tablePrefix}promotion_review_runId`,
-			})
-			.withForeignKey('approvedById', {
-				tableName: userTable,
+			.withForeignKey('reviewId', {
+				tableName: reviewTable,
 				columnName: 'id',
 				onDelete: 'SET NULL',
-				name: `FK_${tablePrefix}promotion_review_approvedById`,
+				name: `FK_${tablePrefix}promotion_run_reviewId`,
 			})
-			// The inbox lists by state and orders by creation time.
-			.withIndexOn(['state', 'createdAt'])
-			// Foreign key index, for the cascade when a run is deleted.
-			.withIndexOn(['runId']);
+			// Foreign key indexes, for SET NULL when the config or the review is deleted.
+			.withIndexOn(['configId'])
+			.withIndexOn(['reviewId']);
 	}
 
 	async down({ schemaBuilder: { dropTable } }: MigrationContext) {
-		await dropTable(reviewTable);
 		await dropTable(runTable);
+		await dropTable(reviewTable);
 	}
 }

@@ -19,6 +19,7 @@ let reviewRepository: PromotionReviewRepository;
 let owner: User;
 let connectionId: string;
 let configId: string;
+let providerId: string;
 
 beforeAll(async () => {
 	await testModules.loadModules(['promotions']);
@@ -36,9 +37,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-	// Delete children before parents to satisfy the foreign keys.
-	await reviewRepository.delete({});
+	// Runs point at reviews and configs, so delete the runs first.
 	await runRepository.delete({});
+	await reviewRepository.delete({});
 	await configRepository.delete({});
 	await connectionRepository.delete({});
 	await providerRepository.delete({});
@@ -52,6 +53,7 @@ beforeEach(async () => {
 		config: { schemaVersion: 1 },
 		auth: 'encrypted-repo',
 	});
+	providerId = provider.id;
 	const connection = await connectionRepository.insertConnection({
 		name: 'repo',
 		scope: 'instance',
@@ -70,19 +72,25 @@ beforeEach(async () => {
 
 let reviewCount = 0;
 
-async function insertReview(over: { id?: string } = {}) {
+async function insertReview(over: { id?: string; remoteReviewId?: string } = {}) {
 	reviewCount += 1;
+	const review = await reviewRepository.insertReview({
+		id: over.id ?? `review-${reviewCount}`,
+		connectionId,
+		type: 'gitlab',
+		remoteReviewId: over.remoteReviewId ?? `7!${reviewCount}`,
+	});
 	const run = await runRepository.insertRun({
 		configId,
 		createdById: owner.id,
 		direction: 'promote',
-		branchName: `n8n-promotion/${reviewCount}`,
-		commitSha: String(reviewCount).repeat(40).slice(0, 40),
-	});
-	const review = await reviewRepository.insertReview({
-		id: over.id ?? `review-${reviewCount}`,
-		runId: run.id,
-		remoteReviewId: `gitlab:7!${reviewCount}`,
+		type: 'git',
+		details: {
+			schemaVersion: 1,
+			branchName: `n8n-promotion/${reviewCount}`,
+			commitSha: String(reviewCount).repeat(40).slice(0, 40),
+		},
+		reviewId: review.id,
 	});
 	return { review, run };
 }
@@ -95,21 +103,24 @@ describe('PromotionReviewRepository', () => {
 		expect(found).toMatchObject({
 			id: 'chosen-id',
 			state: 'open',
-			runId: run.id,
+			type: 'gitlab',
+			connectionId,
 			remoteReviewId: review.remoteReviewId,
 			mergedAt: null,
 			closedAt: null,
 			approvedById: null,
 			approvedAt: null,
 		});
-		expect(found?.run).toMatchObject({
+		expect(found?.connection?.id).toBe(connectionId);
+		expect(found?.runs).toHaveLength(1);
+		expect(found?.runs[0]).toMatchObject({
 			direction: 'promote',
-			branchName: run.branchName,
-			commitSha: run.commitSha,
+			type: 'git',
+			reviewId: review.id,
+			details: run.details,
 		});
-		expect(found?.run?.createdBy?.id).toBe(owner.id);
-		expect(found?.run?.config?.id).toBe(configId);
-		expect(found?.run?.config?.connection?.id).toBe(connectionId);
+		expect(found?.runs[0]?.createdBy?.id).toBe(owner.id);
+		expect(found?.runs[0]?.config?.id).toBe(configId);
 		expect(found?.approvedBy).toBeNull();
 	});
 
@@ -125,15 +136,15 @@ describe('PromotionReviewRepository', () => {
 		await Container.get(UserRepository).delete({ id: member.id });
 
 		const found = await reviewRepository.findByIdWithRelations(review.id);
-		expect(found).toMatchObject({ approvedById: null });
-		expect(found?.run?.configId).toBeNull();
-		expect(found?.run?.config).toBeNull();
-		expect(found?.run?.direction).toBe('promote');
-		expect(found?.run?.branchName).toBe(run.branchName);
-		expect(found?.run?.commitSha).toBe(run.commitSha);
+		expect(found).toMatchObject({ approvedById: null, connectionId: null });
+		expect(found?.connection).toBeNull();
+		expect(found?.runs[0]?.configId).toBeNull();
+		expect(found?.runs[0]?.config).toBeNull();
+		expect(found?.runs[0]?.direction).toBe('promote');
+		expect(found?.runs[0]?.details).toEqual(run.details);
 		expect(found?.approvedBy).toBeNull();
-		expect(found?.run?.createdById).toBe(owner.id);
-		expect(found?.run?.createdBy?.id).toBe(owner.id);
+		expect(found?.runs[0]?.createdById).toBe(owner.id);
+		expect(found?.runs[0]?.createdBy?.id).toBe(owner.id);
 	});
 
 	it('keeps the review when its creator is deleted', async () => {
@@ -142,8 +153,8 @@ describe('PromotionReviewRepository', () => {
 		await Container.get(UserRepository).delete({ id: owner.id });
 
 		const found = await reviewRepository.findByIdWithRelations(review.id);
-		expect(found?.run?.createdById).toBeNull();
-		expect(found?.run?.createdBy).toBeNull();
+		expect(found?.runs[0]?.createdById).toBeNull();
+		expect(found?.runs[0]?.createdBy).toBeNull();
 	});
 
 	it('lists newest first and filters by tab', async () => {
@@ -191,5 +202,59 @@ describe('PromotionReviewRepository', () => {
 
 		expect(first.data.map((r) => r.id)).toEqual(['review-b']);
 		expect(second.data.map((r) => r.id)).toEqual(['review-a']);
+	});
+
+	it('lists a changes_requested review on the open tab', async () => {
+		const { review } = await insertReview();
+		await reviewRepository.update({ id: review.id }, { state: 'changes_requested' });
+
+		const open = await reviewRepository.listReviews({ tab: 'open', offset: 0, limit: 10 });
+		const closed = await reviewRepository.listReviews({ tab: 'closed', offset: 0, limit: 10 });
+
+		expect(open.data.map((row) => row.id)).toEqual([review.id]);
+		expect(closed.count).toBe(0);
+	});
+
+	it('rejects a second review with the same remote id on one connection', async () => {
+		await insertReview({ remoteReviewId: '7!1' });
+
+		await expect(insertReview({ remoteReviewId: '7!1' })).rejects.toThrow();
+	});
+
+	it('allows the same remote id on another connection', async () => {
+		await insertReview({ remoteReviewId: '7!1' });
+		const other = await connectionRepository.insertConnection({
+			name: 'other',
+			scope: 'projects',
+			providerId,
+			target: { schemaVersion: 1, remoteUrl: 'https://example.com/org/other.git' },
+		});
+
+		const review = await reviewRepository.insertReview({
+			id: 'other-review',
+			connectionId: other.id,
+			type: 'gitlab',
+			remoteReviewId: '7!1',
+		});
+
+		expect(review.remoteReviewId).toBe('7!1');
+	});
+
+	it('allows several reviews without a remote id', async () => {
+		await reviewRepository.insertReview({
+			id: 'local-a',
+			connectionId,
+			type: 'gitlab',
+			remoteReviewId: null,
+		});
+		await reviewRepository.insertReview({
+			id: 'local-b',
+			connectionId,
+			type: 'gitlab',
+			remoteReviewId: null,
+		});
+
+		const listed = await reviewRepository.listReviews({ offset: 0, limit: 10 });
+		expect(listed.count).toBe(2);
 	});
 });

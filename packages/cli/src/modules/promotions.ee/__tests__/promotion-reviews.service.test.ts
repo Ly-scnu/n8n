@@ -4,7 +4,6 @@ import { mock } from 'vitest-mock-extended';
 
 import { ServiceUnavailableError } from '@n8n/errors';
 
-import type { PromotionRun } from '../database/entities/promotion-run.entity';
 import type { PromotionReviewRepository } from '../database/repositories/promotion-review.repository';
 import type { PromotionRunRepository } from '../database/repositories/promotion-run.repository';
 import type {
@@ -69,22 +68,21 @@ describe('PromotionReviewsService', () => {
 		hostResolver.resolve.mockResolvedValue(host);
 		mergeRequests.createMergeRequest.mockResolvedValue(mergeRequest);
 		txRunner.run.mockImplementation(async (ctx, fn) => await fn(ctx));
-		runRepository.insertRun.mockResolvedValue(mock<PromotionRun>({ id: 'run-1' }));
 	});
 
 	it('does nothing for a connection without a host API', async () => {
 		hostResolver.resolve.mockResolvedValue(null);
 
-		await expect(service.openMergeRequest(input, actor, push)).resolves.toEqual({
+		await expect(service.openMergeRequest(input, actor, push, 'run-1')).resolves.toEqual({
 			warnings: [],
 		});
 		expect(mergeRequests.createMergeRequest).not.toHaveBeenCalled();
-		expect(runRepository.insertRun).not.toHaveBeenCalled();
+		expect(runRepository.attachReview).not.toHaveBeenCalled();
 		expect(reviewRepository.insertReview).not.toHaveBeenCalled();
 	});
 
 	it('opens the merge request and records the review', async () => {
-		const result = await service.openMergeRequest(input, actor, push);
+		const result = await service.openMergeRequest(input, actor, push, 'run-1');
 
 		expect(result).toEqual({
 			mergeRequest: { reviewId: expect.any(String), iid: 3, webUrl: mergeRequest.web_url },
@@ -104,30 +102,30 @@ describe('PromotionReviewsService', () => {
 		expect(mergeRequests.createMergeRequest.mock.calls[0][1].description).toContain(
 			'promotion by Ada Lovelace',
 		);
-		expect(runRepository.insertRun).toHaveBeenCalledWith(
-			{
-				configId: 'config-1',
-				createdById: 'actor',
-				direction: 'promote',
-				branchName: push.branchName,
-				commitSha: push.commitSha,
-			},
-			expect.anything(),
-		);
 		expect(reviewRepository.insertReview).toHaveBeenCalledWith(
 			{
 				id: reviewId,
-				runId: 'run-1',
-				remoteReviewId: 'gitlab:7!3',
+				connectionId: 'conn1',
+				type: 'gitlab',
+				remoteReviewId: '7!3',
 			},
 			expect.anything(),
 		);
+		expect(runRepository.attachReview).toHaveBeenCalledWith('run-1', reviewId, expect.anything());
+	});
+
+	it('records the review without a run when the push was not recorded', async () => {
+		const result = await service.openMergeRequest(input, actor, push, undefined);
+
+		expect(result.mergeRequest?.reviewId).toEqual(expect.any(String));
+		expect(reviewRepository.insertReview).toHaveBeenCalled();
+		expect(runRepository.attachReview).not.toHaveBeenCalled();
 	});
 
 	it('returns a warning instead of throwing when the host cannot be resolved', async () => {
 		hostResolver.resolve.mockRejectedValue(new Error('decrypt failed'));
 
-		await expect(service.openMergeRequest(input, actor, push)).resolves.toEqual({
+		await expect(service.openMergeRequest(input, actor, push, 'run-1')).resolves.toEqual({
 			warnings: [`The branch ${push.branchName} was pushed, but no merge request was opened.`],
 		});
 		expect(mergeRequests.createMergeRequest).not.toHaveBeenCalled();
@@ -138,19 +136,19 @@ describe('PromotionReviewsService', () => {
 			new ServiceUnavailableError('GitLab is not available. Try again later.'),
 		);
 
-		await expect(service.openMergeRequest(input, actor, push)).resolves.toEqual({
+		await expect(service.openMergeRequest(input, actor, push, 'run-1')).resolves.toEqual({
 			warnings: [
 				`The branch ${push.branchName} was pushed, but no merge request was opened: GitLab is not available. Try again later.`,
 			],
 		});
-		expect(runRepository.insertRun).not.toHaveBeenCalled();
+		expect(runRepository.attachReview).not.toHaveBeenCalled();
 		expect(reviewRepository.insertReview).not.toHaveBeenCalled();
 	});
 
 	it('points at the open merge request when the review row could not be written', async () => {
 		reviewRepository.insertReview.mockRejectedValue(new Error('db down'));
 
-		await expect(service.openMergeRequest(input, actor, push)).resolves.toEqual({
+		await expect(service.openMergeRequest(input, actor, push, 'run-1')).resolves.toEqual({
 			warnings: [
 				`The merge request ${mergeRequest.web_url} was opened, but n8n could not record the review. Review it on GitLab.`,
 			],

@@ -119,8 +119,8 @@ Auto-generated from the SQLite migrations in @n8n/db. Do not edit by hand.
 | [promotion_connection](promotion_connection.md) | 7 |  | table |
 | [promotion_connection_project](promotion_connection_project.md) | 4 |  | table |
 | [promotion_provider](promotion_provider.md) | 8 |  | table |
-| [promotion_review](promotion_review.md) | 9 |  | table |
-| [promotion_run](promotion_run.md) | 7 |  | table |
+| [promotion_review](promotion_review.md) | 10 |  | table |
+| [promotion_run](promotion_run.md) | 8 |  | table |
 | [role](role.md) | 7 |  | table |
 | [role_mapping_rule](role_mapping_rule.md) | 7 |  | table |
 | [role_mapping_rule_project](role_mapping_rule_project.md) | 2 |  | table |
@@ -339,7 +339,8 @@ erDiagram
 "promotion_connection_project" }o--|| "promotion_connection" : "FOREIGN KEY (connectionId) REFERENCES promotion_connection (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "promotion_connection_project" |o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "promotion_review" }o--o| "user" : "FOREIGN KEY (approvedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
-"promotion_review" }o--|| "promotion_run" : "FOREIGN KEY (runId) REFERENCES promotion_run (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"promotion_review" }o--o| "promotion_connection" : "FOREIGN KEY (connectionId) REFERENCES promotion_connection (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"promotion_run" }o--o| "promotion_review" : "FOREIGN KEY (reviewId) REFERENCES promotion_review (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "promotion_run" }o--o| "user" : "FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "promotion_run" }o--o| "promotion_config" : "FOREIGN KEY (configId) REFERENCES promotion_config (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "role_mapping_rule" }o--|| "role" : "FOREIGN KEY (role) REFERENCES role (slug) ON UPDATE CASCADE ON DELETE CASCADE MATCH NONE"
@@ -1523,21 +1524,23 @@ erDiagram
   datetime_3_ approvedAt
   varchar approvedById FK
   datetime_3_ closedAt
+  varchar_36_ connectionId FK
   datetime_3_ createdAt
   varchar_36_ id PK
   datetime_3_ mergedAt
   varchar_255_ remoteReviewId
-  varchar_36_ runId FK
-  varchar_16_ state
+  varchar_32_ state
+  varchar_16_ type
 }
 "promotion_run" {
-  varchar_255_ branchName
-  varchar_64_ commitSha
   varchar_36_ configId FK
   datetime_3_ createdAt
   varchar createdById FK
+  TEXT details
   varchar_16_ direction
   varchar_36_ id PK
+  varchar_36_ reviewId FK
+  varchar_16_ type
 }
 "role" {
   datetime_3_ createdAt

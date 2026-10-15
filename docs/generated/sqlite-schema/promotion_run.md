@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "promotion_run" ("id" varchar(36) PRIMARY KEY NOT NULL, "configId" varchar(36), "createdById" varchar, "direction" varchar(16) NOT NULL, "branchName" varchar(255) NOT NULL, "commitSha" varchar(64) NOT NULL, "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), CONSTRAINT "CHK_promotion_run_direction" CHECK ("direction" IN ('promote', 'apply')), CONSTRAINT "FK_promotion_run_configId" FOREIGN KEY ("configId") REFERENCES "promotion_config" ("id") ON DELETE SET NULL, CONSTRAINT "FK_promotion_run_createdById" FOREIGN KEY ("createdById") REFERENCES "user" ("id") ON DELETE SET NULL)
+CREATE TABLE "promotion_run" ("id" varchar(36) PRIMARY KEY NOT NULL, "configId" varchar(36), "direction" varchar(16) NOT NULL, "type" varchar(16) NOT NULL, "createdById" varchar, "details" text, "reviewId" varchar(36), "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), CONSTRAINT "CHK_promotion_run_direction" CHECK ("direction" IN ('promote', 'apply')), CONSTRAINT "FK_promotion_run_configId" FOREIGN KEY ("configId") REFERENCES "promotion_config" ("id") ON DELETE SET NULL, CONSTRAINT "FK_promotion_run_createdById" FOREIGN KEY ("createdById") REFERENCES "user" ("id") ON DELETE SET NULL, CONSTRAINT "FK_promotion_run_reviewId" FOREIGN KEY ("reviewId") REFERENCES "promotion_review" ("id") ON DELETE SET NULL)
 ```
 
 </details>
@@ -15,21 +15,23 @@ CREATE TABLE "promotion_run" ("id" varchar(36) PRIMARY KEY NOT NULL, "configId" 
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| branchName | varchar(255) |  | false |  |  |  |
-| commitSha | varchar(64) |  | false |  |  |  |
 | configId | varchar(36) |  | true |  | [promotion_config](promotion_config.md) |  |
 | createdAt | datetime(3) | STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW') | false |  |  |  |
 | createdById | varchar |  | true |  | [user](user.md) |  |
+| details | TEXT |  | true |  |  |  |
 | direction | varchar(16) |  | false |  |  |  |
-| id | varchar(36) |  | false | [promotion_review](promotion_review.md) |  |  |
+| id | varchar(36) |  | false |  |  |  |
+| reviewId | varchar(36) |  | true |  | [promotion_review](promotion_review.md) |  |
+| type | varchar(16) |  | false |  |  |  |
 
 ## Constraints
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
 | - | CHECK | CHECK ("direction" IN ('promote', 'apply')) |
-| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
-| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (configId) REFERENCES promotion_config (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
+| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (reviewId) REFERENCES promotion_review (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
+| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
+| - (Foreign key ID: 2) | FOREIGN KEY | FOREIGN KEY (configId) REFERENCES promotion_config (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
 | id | PRIMARY KEY | PRIMARY KEY (id) |
 | sqlite_autoindex_promotion_run_1 | PRIMARY KEY | PRIMARY KEY (id) |
 
@@ -38,6 +40,7 @@ CREATE TABLE "promotion_run" ("id" varchar(36) PRIMARY KEY NOT NULL, "configId" 
 | Name | Definition |
 | ---- | ---------- |
 | IDX_5c00951cc85ac1bc6f120b1e69 | CREATE INDEX "IDX_5c00951cc85ac1bc6f120b1e69" ON "promotion_run" ("configId")  |
+| IDX_b24c3e6b803dc496c8702f12ab | CREATE INDEX "IDX_b24c3e6b803dc496c8702f12ab" ON "promotion_run" ("reviewId")  |
 | sqlite_autoindex_promotion_run_1 | PRIMARY KEY (id) |
 
 ## Relations
@@ -47,16 +50,17 @@ erDiagram
 
 "promotion_run" }o--o| "promotion_config" : "FOREIGN KEY (configId) REFERENCES promotion_config (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "promotion_run" }o--o| "user" : "FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
-"promotion_review" }o--|| "promotion_run" : "FOREIGN KEY (runId) REFERENCES promotion_run (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"promotion_run" }o--o| "promotion_review" : "FOREIGN KEY (reviewId) REFERENCES promotion_review (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 
 "promotion_run" {
-  varchar_255_ branchName
-  varchar_64_ commitSha
   varchar_36_ configId FK
   datetime_3_ createdAt
   varchar createdById FK
+  TEXT details
   varchar_16_ direction
   varchar_36_ id PK
+  varchar_36_ reviewId FK
+  varchar_16_ type
 }
 "promotion_config" {
   varchar_36_ connectionId FK
@@ -88,12 +92,13 @@ erDiagram
   datetime_3_ approvedAt
   varchar approvedById FK
   datetime_3_ closedAt
+  varchar_36_ connectionId FK
   datetime_3_ createdAt
   varchar_36_ id PK
   datetime_3_ mergedAt
   varchar_255_ remoteReviewId
-  varchar_36_ runId FK
-  varchar_16_ state
+  varchar_32_ state
+  varchar_16_ type
 }
 ```
 

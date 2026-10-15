@@ -26,6 +26,8 @@ import type { ProjectService } from '@/services/project.service.ee';
 import type { PromotionBindingPreflightService } from '../promotion-binding-preflight.service';
 import type { PromotionConfigResolver } from '../promotion-config.resolver';
 import type { PromotionProvidersService } from '../promotion-providers.service';
+import type { PromotionRun } from '../database/entities/promotion-run.entity';
+import type { PromotionRunRepository } from '../database/repositories/promotion-run.repository';
 import type { PromotionReviewsService } from '../promotion-reviews.service';
 import { PromotionWorkingDirectoryService } from '../promotion-working-directory.service';
 import type { PromotionsGitService } from '../promotions-git.service';
@@ -72,6 +74,7 @@ describe('PromotionsService', () => {
 	const bindingPreflight = mock<PromotionBindingPreflightService>();
 	const inventoryReader = mock<PackageDirectoryInventoryReader>();
 	const packageImportConfig = mock<PackageImportConfig>();
+	const runRepository = mock<PromotionRunRepository>();
 	const reviewsService = mock<PromotionReviewsService>();
 	const logger = mock<Logger>();
 	logger.scoped.mockReturnValue(logger);
@@ -141,9 +144,11 @@ describe('PromotionsService', () => {
 			bindingPreflight,
 			inventoryReader,
 			packageImportConfig,
+			runRepository,
 			reviewsService,
 			logger,
 		);
+		runRepository.insertRun.mockResolvedValue(mock<PromotionRun>({ id: 'run-1' }));
 		reviewsService.openMergeRequest.mockResolvedValue({ warnings: [] });
 		providersService.decryptCredentials.mockResolvedValue({
 			authType: 'ssh-key',
@@ -429,12 +434,17 @@ describe('PromotionsService', () => {
 					commitMessage: 'first line\nsecond line',
 				});
 
-				expect(reviewsService.openMergeRequest).toHaveBeenCalledWith(input, actor, {
-					branchName: result.git.branchName,
-					baseBranchName: 'staging',
-					commitSha: 'newsha',
-					title: 'first line',
-				});
+				expect(reviewsService.openMergeRequest).toHaveBeenCalledWith(
+					input,
+					actor,
+					{
+						branchName: result.git.branchName,
+						baseBranchName: 'staging',
+						commitSha: 'newsha',
+						title: 'first line',
+					},
+					'run-1',
+				);
 				expect(result.mergeRequest).toEqual({
 					reviewId: 'review1',
 					iid: 3,
@@ -450,7 +460,16 @@ describe('PromotionsService', () => {
 				});
 
 				expect(reviewsService.openMergeRequest).not.toHaveBeenCalled();
+				expect(runRepository.insertRun).toHaveBeenCalledWith({
+					configId: CONFIG_ID,
+					createdById: 'actor',
+					direction: 'promote',
+					type: 'git',
+					details: { schemaVersion: 1, branchName: 'staging', commitSha: 'newsha' },
+					reviewId: null,
+				});
 				expect(result.mergeRequest).toBeUndefined();
+				expect(result.warnings).toBeUndefined();
 			});
 
 			it('returns the push with warnings when the review could not be opened', async () => {
@@ -502,6 +521,7 @@ describe('PromotionsService', () => {
 				service.promote('conn1', actor, { canExportVariableValues: true, commitMessage: 'm' }),
 			).rejects.toThrow('Descriptor removal failed');
 			expect(gitService.commitAndPush).not.toHaveBeenCalled();
+			expect(runRepository.insertRun).not.toHaveBeenCalled();
 			await expect(workingDirectory.readDescriptor(CONFIG_ID)).resolves.not.toBeNull();
 		});
 
@@ -772,12 +792,17 @@ describe('PromotionsService', () => {
 				canExportVariableValues: true,
 			});
 
-			expect(reviewsService.openMergeRequest).toHaveBeenCalledWith(input, actor, {
-				branchName: result.git.branchName,
-				baseBranchName: 'staging',
-				commitSha: 'selsha',
-				title: 'm',
-			});
+			expect(reviewsService.openMergeRequest).toHaveBeenCalledWith(
+				input,
+				actor,
+				{
+					branchName: result.git.branchName,
+					baseBranchName: 'staging',
+					commitSha: 'selsha',
+					title: 'm',
+				},
+				'run-1',
+			);
 			expect(result.warnings).toEqual(['no merge request']);
 			// The package keeps the pushed selection. No rollback happened.
 			await expect(

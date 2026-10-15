@@ -393,21 +393,23 @@ erDiagram
   datetime_3_ approvedAt
   varchar approvedById FK
   datetime_3_ closedAt
+  varchar_36_ connectionId FK
   datetime_3_ createdAt
   varchar_36_ id PK
   datetime_3_ mergedAt
   varchar_255_ remoteReviewId
-  varchar_36_ runId FK
-  varchar_16_ state
+  varchar_32_ state
+  varchar_16_ type
 }
 "promotion_run" {
-  varchar_255_ branchName
-  varchar_64_ commitSha
   varchar_36_ configId FK
   datetime_3_ createdAt
   varchar createdById FK
+  TEXT details
   varchar_16_ direction
   varchar_36_ id PK
+  varchar_36_ reviewId FK
+  varchar_16_ type
 }
 "self_healing_result" {
   varchar backgroundUserId FK

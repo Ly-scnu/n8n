@@ -4,10 +4,10 @@ import { DataSource } from '@n8n/typeorm';
 
 import { PromotionRun } from '../entities/promotion-run.entity';
 
-/** The id is generated on insert. The caller does not need it beforehand. */
+/** The id is generated on insert. `reviewId` stays NULL until a review is attached. */
 export type NewPromotionRun = Pick<
 	PromotionRun,
-	'configId' | 'createdById' | 'direction' | 'branchName' | 'commitSha'
+	'configId' | 'createdById' | 'direction' | 'type' | 'details' | 'reviewId'
 >;
 
 @Service()
@@ -18,5 +18,10 @@ export class PromotionRunRepository extends BaseRepository<PromotionRun> {
 
 	async insertRun(run: NewPromotionRun, ctx: OperationContext = {}): Promise<PromotionRun> {
 		return await this.managerFor(ctx).save(PromotionRun, this.create(run));
+	}
+
+	/** The only column that changes after insert. An amend inserts a new run instead. */
+	async attachReview(runId: string, reviewId: string, ctx: OperationContext = {}): Promise<void> {
+		await this.managerFor(ctx).update(PromotionRun, { id: runId }, { reviewId });
 	}
 }

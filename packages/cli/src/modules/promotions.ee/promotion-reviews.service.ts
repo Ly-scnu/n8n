@@ -1,4 +1,8 @@
-import type { PromotionMergeRequestResult } from '@n8n/api-types';
+import {
+	parseRemoteReviewId,
+	promotionReviewTypeSchema,
+	type PromotionMergeRequestResult,
+} from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { TransactionRunner, type User } from '@n8n/db';
 import { Service } from '@n8n/di';
@@ -57,6 +61,7 @@ export class PromotionReviewsService {
 		input: PromotionOperationInput,
 		actor: User,
 		{ branchName, baseBranchName, commitSha, title }: PromotionPush,
+		runId: string | undefined,
 	): Promise<OpenReviewResult> {
 		const host = await settle(async () => await this.hostResolver.resolve(input));
 		if (!host.ok) {
@@ -83,27 +88,21 @@ export class PromotionReviewsService {
 		const { iid, project_id: projectId, web_url: webUrl } = mergeRequest.result;
 
 		const reviewId = generateNanoId();
+		const type = promotionReviewTypeSchema.parse('gitlab');
 		const review = await settle(
 			async () =>
 				await this.txRunner.run({}, async (ctx) => {
-					const run = await this.runRepository.insertRun(
-						{
-							configId: input.configId,
-							createdById: actor.id,
-							direction: input.config.direction,
-							branchName,
-							commitSha,
-						},
-						ctx,
-					);
-					return await this.reviewRepository.insertReview(
+					await this.reviewRepository.insertReview(
 						{
 							id: reviewId,
-							runId: run.id,
-							remoteReviewId: toGitLabReviewId({ projectId, iid }),
+							connectionId: input.connectionId,
+							type,
+							remoteReviewId: parseRemoteReviewId(type, toGitLabReviewId({ projectId, iid })),
 						},
 						ctx,
 					);
+					// The run already exists. Link it in the same transaction as the review.
+					if (runId) await this.runRepository.attachReview(runId, reviewId, ctx);
 				}),
 		);
 		if (!review.ok) {

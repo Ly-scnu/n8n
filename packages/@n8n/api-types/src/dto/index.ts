@@ -781,6 +781,15 @@ export {
 	promotionGitResultSchema,
 } from './promotions/promotion-operations.dto';
 export {
+	parsePromotionRunDetails,
+	promotionGitRunDetailsSchema,
+	promotionRunDetailsSchemas,
+	promotionRunTypeSchema,
+	type PromotionGitRunDetails,
+	type PromotionRunDetails,
+	type PromotionRunType,
+} from './promotions/promotion-run.dto';
+export {
 	ListPromotionReviewsQueryDto,
 	PromotionReviewDetailDto,
 	PromotionReviewListPublicDto,
@@ -789,9 +798,13 @@ export {
 	promotionReviewChangeKindSchema,
 	promotionReviewDetailSchema,
 	promotionReviewListPublicSchema,
+	gitLabRemoteReviewIdSchema,
+	parseRemoteReviewId,
+	promotionRemoteReviewIdSchemas,
 	promotionReviewStateSchema,
 	promotionReviewSummarySchema,
 	promotionReviewTabSchema,
+	promotionReviewTypeSchema,
 	promotionReviewWorkflowChangeSchema,
 	promotionReviewWorkflowDiffSchema,
 	type PromotionMergeRequestResult,
@@ -799,6 +812,7 @@ export {
 	type PromotionReviewRemote,
 	type PromotionReviewState,
 	type PromotionReviewSummary,
+	type PromotionReviewType,
 	type PromotionReviewTab,
 	type PromotionReviewWorkflowChange,
 } from './promotions/promotion-review.dto';

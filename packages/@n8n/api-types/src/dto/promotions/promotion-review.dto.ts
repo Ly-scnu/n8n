@@ -4,11 +4,35 @@ import { n8nIdSchema } from '../../schemas/id.schema';
 import { Z } from '../../zod-class';
 
 /**
- * The state of a Promotion Review. `open` mirrors the review on the host while
- * it is open. `merged` and `closed` are terminal and owned by n8n.
+ * The state of a Promotion Review. `open` and `changes_requested` mirror the
+ * review on the host. `merged` and `closed` are terminal and owned by n8n.
  */
-export const promotionReviewStateSchema = z.enum(['open', 'merged', 'closed']);
+export const promotionReviewStateSchema = z.enum(['open', 'changes_requested', 'merged', 'closed']);
 export type PromotionReviewState = z.infer<typeof promotionReviewStateSchema>;
+
+/**
+ * Where the review lives. The application checks this value. The database does not.
+ */
+export const promotionReviewTypeSchema = z.enum(['gitlab']);
+export type PromotionReviewType = z.infer<typeof promotionReviewTypeSchema>;
+
+/**
+ * Host reference for each review type. Code selects the schema from the type
+ * column. GitLab stores `<projectId>!<iid>`. The type column names the host.
+ */
+export const gitLabRemoteReviewIdSchema = z.string().regex(/^\d+!\d+$/);
+
+export const promotionRemoteReviewIdSchemas = {
+	gitlab: gitLabRemoteReviewIdSchema,
+} as const;
+
+/** Parse a host reference with the schema for `type`. */
+export function parseRemoteReviewId<T extends PromotionReviewType>(
+	type: T,
+	remoteReviewId: string,
+): z.infer<(typeof promotionRemoteReviewIdSchemas)[T]> {
+	return promotionRemoteReviewIdSchemas[type].parse(remoteReviewId);
+}
 
 const reviewUserSchema = z.object({
 	id: z.string(),
@@ -31,8 +55,8 @@ export const promotionReviewSummarySchema = z.object({
 	state: promotionReviewStateSchema,
 	branchName: z.string(),
 	commitSha: z.string(),
-	/** Opaque host reference, e.g. `gitlab:<projectId>!<iid>`. */
-	remoteReviewId: z.string(),
+	/** Host reference for the review type. GitLab stores `<projectId>!<iid>`. NULL when the review lives in n8n. */
+	remoteReviewId: z.string().nullable(),
 	connection: z.object({ id: n8nIdSchema, name: z.string() }).nullable(),
 	createdBy: reviewUserSchema.nullable(),
 	approvedBy: reviewUserSchema.nullable(),

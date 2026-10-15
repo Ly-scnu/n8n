@@ -66,13 +66,14 @@ erDiagram
   datetime_3_ updatedAt
 }
 "promotion_run" {
-  varchar_255_ branchName
-  varchar_64_ commitSha
   varchar_36_ configId FK
   datetime_3_ createdAt
   varchar createdById FK
+  TEXT details
   varchar_16_ direction
   varchar_36_ id PK
+  varchar_36_ reviewId FK
+  varchar_16_ type
 }
 ```
 

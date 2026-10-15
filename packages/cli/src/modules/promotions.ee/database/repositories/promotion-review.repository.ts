@@ -6,14 +6,25 @@ import { DataSource, In, type FindOptionsWhere } from '@n8n/typeorm';
 import { PromotionReview } from '../entities/promotion-review.entity';
 
 /** The caller supplies the id, so the review link can exist before the row does. */
-export type NewPromotionReview = Pick<PromotionReview, 'id' | 'runId' | 'remoteReviewId'>;
+export type NewPromotionReview = Pick<
+	PromotionReview,
+	'id' | 'connectionId' | 'type' | 'remoteReviewId'
+>;
 
+/** Still on the host. The open tab shows both. */
+const OPEN_STATES: PromotionReviewState[] = ['open', 'changes_requested'];
 const TERMINAL_STATES: PromotionReviewState[] = ['merged', 'closed'];
 
-/** The run carries the config, the creator, the branch and the commit. */
-const WITH_RUN = {
-	run: { config: { connection: true }, createdBy: true },
+const LIST_RELATIONS = {
+	connection: true,
 	approvedBy: true,
+} as const;
+
+/** The newest run carries the branch and the commit. Loaded only for one review. */
+const DETAIL_RELATIONS = {
+	connection: true,
+	approvedBy: true,
+	runs: { config: { connection: true }, createdBy: true },
 } as const;
 
 @Service()
@@ -30,7 +41,7 @@ export class PromotionReviewRepository extends BaseRepository<PromotionReview> {
 	}
 
 	async findByIdWithRelations(id: string): Promise<PromotionReview | null> {
-		return await this.findOne({ where: { id }, relations: WITH_RUN });
+		return await this.findOne({ where: { id }, relations: DETAIL_RELATIONS });
 	}
 
 	/**
@@ -40,12 +51,12 @@ export class PromotionReviewRepository extends BaseRepository<PromotionReview> {
 	 */
 	async listReviews(options: { tab?: PromotionReviewTab; offset: number; limit: number }) {
 		const where: FindOptionsWhere<PromotionReview> = {};
-		if (options.tab === 'open') where.state = 'open';
+		if (options.tab === 'open') where.state = In(OPEN_STATES);
 		if (options.tab === 'closed') where.state = In(TERMINAL_STATES);
 
 		const [data, count] = await this.findAndCount({
 			where,
-			relations: WITH_RUN,
+			relations: LIST_RELATIONS,
 			order: { createdAt: 'DESC', id: 'DESC' },
 			skip: options.offset,
 			take: options.limit,

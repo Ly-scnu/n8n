@@ -52,7 +52,12 @@ export function projectPlanWorkState(
 		stoppedTaskIds,
 		stoppingTaskIds,
 		fullyStopped,
-		stoppedAt: fullyStopped ? (stop?.requestedAt ?? null) : null,
+		stoppedAt: fullyStopped
+			? ([stop?.requestedAt, ...planLeaves(document).map((item) => item.endedAt)]
+					.filter((time): time is string => Boolean(time))
+					.sort()
+					.at(-1) ?? null)
+			: null,
 		taskStateAvailable,
 	};
 }

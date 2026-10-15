@@ -91,6 +91,16 @@ describe('plan work state', () => {
 		expect(state.fullyStopped).toBe(false);
 	});
 
+	it('freezes after newly added work finishes without moving the timer backward', () => {
+		const endedAt = '2026-10-15T10:02:00Z';
+		const state = projectPlanWorkState(
+			{ ...document, items: [...document.items, { ...task('groove', 'done'), endedAt }] },
+			stop,
+			[],
+		);
+		expect(state).toMatchObject({ fullyStopped: true, stoppedAt: endedAt });
+	});
+
 	it('captures empty groups and children of nonempty groups', () => {
 		const empty = { ...task('empty'), kind: 'group' as const, tasks: [] };
 		const group = {

@@ -8,6 +8,7 @@ import { Agent } from '@/modules/agents/entities/agent.entity';
 import { AgentBackgroundJob } from '@/modules/agents/entities/agent-background-job.entity';
 import { AgentExecutionThread } from '@/modules/agents/entities/agent-execution-thread.entity';
 import { AgentPlan } from '@/modules/agents/entities/agent-plan.entity';
+import { AgentPlanService } from '@/modules/agents/agent-plan.service';
 import type { AgentPlanDocument, AgentPlanTask } from '@/modules/agents/plans/agent-plan.schema';
 import { AgentBackgroundJobRepository } from '@/modules/agents/repositories/agent-background-job.repository';
 import { AgentPlanRepository } from '@/modules/agents/repositories/agent-plan.repository';
@@ -213,7 +214,7 @@ describe('Plan task ownership and continuation', () => {
 		expect(selected.status === 'selected' && selected.jobs).toHaveLength(2);
 	});
 
-	it('releases pending tasks without starting jobs and keeps blocked tasks stopped', async () => {
+	it('releases selected pending tasks while prerequisites still prevent dispatch', async () => {
 		tasks[1].dependsOn = [tasks[0].id];
 		await db.getRepository(AgentPlan).update(planId, {
 			data: { title: 'Research', description: 'Compare products', items: tasks },
@@ -223,7 +224,114 @@ describe('Plan task ownership and continuation', () => {
 		if (selected.status !== 'selected') throw new Error('Selection failed');
 		expect(selected.blocked).toEqual([{ id: tasks[1].id, blockedBy: [tasks[0].id] }]);
 		await work.releaseStoppedTasks(thread.id, planId, savedStop.pause.id, selected.taskIds);
-		expect((await stops.latest(thread.id))?.stoppedTaskIds).toEqual([tasks[1].id, tasks[2].id]);
+		expect((await stops.latest(thread.id))?.stoppedTaskIds).toEqual([tasks[2].id]);
+		await expect(work.validateTask(thread.id, { planId, planTaskId: tasks[1].id })).rejects.toThrow(
+			'prerequisites',
+		);
+		expect(await work.jobsForPlan(planId)).toEqual([]);
+	});
+
+	it('keeps unselected prerequisites stopped when a pending task continues', async () => {
+		tasks[1].dependsOn = [tasks[0].id];
+		await db.getRepository(AgentPlan).update(planId, {
+			data: { title: 'Research', description: 'Compare products', items: tasks },
+		});
+		const saved = await stop();
+		const prerequisite = await job(tasks[0].id, saved.pause.id);
+		const selected = await work.selectStoppedTasks(thread.id, planId, [tasks[1].id]);
+		if (selected.status !== 'selected') throw new Error('Selection failed');
+		expect(selected.jobs).toEqual([]);
+		await work.releaseStoppedTasks(thread.id, planId, saved.pause.id, selected.taskIds);
+		expect((await stops.latest(thread.id))?.stoppedTaskIds).toEqual([tasks[0].id, tasks[2].id]);
+		expect((await jobs.findById(prerequisite.id))?.status).toBe('paused');
+		await expect(work.validateTask(thread.id, { planId, planTaskId: tasks[1].id })).rejects.toThrow(
+			'prerequisites',
+		);
+	});
+
+	it('keeps a blocked paused job stopped until its prerequisites complete', async () => {
+		tasks[1].dependsOn = [tasks[0].id];
+		await db.getRepository(AgentPlan).update(planId, {
+			data: { title: 'Research', description: 'Compare products', items: tasks },
+		});
+		const saved = await stop();
+		const child = await job(tasks[1].id, saved.pause.id);
+		const selected = await work.selectStoppedTasks(thread.id, planId, [tasks[1].id]);
+		if (selected.status !== 'selected') throw new Error('Selection failed');
+		expect(selected.jobs).toEqual([]);
+		await work.releaseStoppedTasks(thread.id, planId, saved.pause.id, selected.taskIds);
+		expect((await stops.latest(thread.id))?.stoppedTaskIds).toEqual(tasks.map((item) => item.id));
+		expect((await jobs.findById(child.id))?.status).toBe('paused');
+	});
+
+	it('releases the comparison on Continue before the research results are accepted', async () => {
+		const research = tasks.map((item) => ({ ...item, status: 'in_progress' as const }));
+		const group = {
+			...task('Research'),
+			kind: 'group' as const,
+			status: 'in_progress' as const,
+			tasks: research,
+		};
+		const comparison = { ...task('Compare and recommend'), dependsOn: [group.id] };
+		tasks = [...research, comparison];
+		const document = {
+			title: 'Research',
+			description: 'Compare products',
+			items: [group, comparison],
+		};
+		await db.getRepository(AgentPlan).update(planId, { data: document });
+		const saved = await stop();
+		for (const item of research) {
+			const child = await job(item.id, saved.pause.id);
+			await db
+				.getRepository(AgentBackgroundJob)
+				.update(child.id, { status: 'completed', result: 'Research saved' });
+		}
+		const selected = await work.selectStoppedTasks(thread.id, planId);
+		if (selected.status !== 'selected') throw new Error('Selection failed');
+		expect(selected.blocked).toEqual([{ id: comparison.id, blockedBy: [group.id] }]);
+		await work.releaseStoppedTasks(thread.id, planId, saved.pause.id, selected.taskIds);
+		const plans = Container.get(AgentPlanService);
+		const reviewed = await plans.replacePlan(
+			{
+				threadId: thread.id,
+				planId,
+				expectedRevision: 1,
+				formatVersion: 1,
+				data: {
+					...document,
+					items: [
+						{
+							...group,
+							status: 'done',
+							tasks: research.map((item) => ({ ...item, status: 'done' })),
+						},
+						comparison,
+					],
+				},
+			},
+			{},
+		);
+		expect(reviewed.workState).toMatchObject({ stoppedTaskIds: [], fullyStopped: false });
+		expect(reviewed.readiness.ready).toContain(comparison.id);
+		await expect(
+			work.validateTask(thread.id, { planId, planTaskId: comparison.id }),
+		).resolves.toBeUndefined();
+		const finished = await plans.replacePlan(
+			{
+				threadId: thread.id,
+				planId,
+				expectedRevision: reviewed.revision,
+				formatVersion: 1,
+				data: {
+					...reviewed.data,
+					items: reviewed.data.items.map((item) => ({ ...item, status: 'done' })),
+				},
+			},
+			{},
+		);
+		expect(finished.data.items.every((item) => item.status === 'done')).toBe(true);
+		expect(finished.workState).toMatchObject({ stoppedTaskIds: [], fullyStopped: false });
 	});
 
 	it('keeps a cancelled workflow task stopped until a replacement job starts', async () => {

@@ -98,12 +98,16 @@ Pass `taskIds` to continue only those tasks. A group selects its unfinished chil
 An empty `taskIds` list is invalid. Omit it to select the whole plan.
 The tool does not resume prerequisites or approve pending tools.
 It reports blocked tasks, failed resumes, and workflows that need a new execution.
+Selected tasks without jobs leave the stopped state, even when their prerequisites are unfinished.
+They stay pending until those prerequisites are Done. Continue does not dispatch them.
+Paused jobs with unfinished prerequisites stay stopped.
 Jobs without saved task links support only whole-group continuation.
 
 Plan snapshots include `workState`. This state changes the display without changing saved task statuses.
 A new user turn admits chat work. It does not release stopped tasks.
 New plan tasks can run while older tasks remain stopped.
 The main agent must review results before it marks a task Done.
+It must also mark comparisons and recommendations Done before giving the final answer.
 
 ## `mark_session_failed`: session outcomes
 

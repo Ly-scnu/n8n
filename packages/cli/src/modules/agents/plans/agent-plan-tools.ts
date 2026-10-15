@@ -225,6 +225,7 @@ export function createAgentPlanTools(service: AgentPlanService): BuiltTool[] {
 					'This rule overrides the default foreground-delegation guidance for plan work. ' +
 					'If background mode is unavailable, explain the limitation instead of delegating plan work in the foreground. ' +
 					'Keep task and group statuses current. Accept results before marking work Done. ' +
+					'This includes work you complete in your own reply, such as a comparison or recommendation. Mark that task Done before giving the final answer. ' +
 					'Before announcing plan changes or task progress to the user, always update the plan with that information. ' +
 					'Wait for the plan update to succeed before announcing the change. ' +
 					'Use presentation.label for a short, factual activity label in the plan card. ' +

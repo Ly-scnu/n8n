@@ -146,7 +146,8 @@ export class AgentPlanWorkRepository extends BaseRepository<AgentPlan> {
 			status: 'selected' as const,
 			planId,
 			stopId: stop.pause.id,
-			taskIds: ids,
+			// Release selected pending tasks too. Prerequisites still prevent dispatch.
+			taskIds: requestedIds,
 			blocked,
 			jobs,
 		};
